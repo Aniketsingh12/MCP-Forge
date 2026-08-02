@@ -1,4 +1,4 @@
-# MCP Forge
+# MCP Server builder
 
 **MCP servers without the expertise.** Point it at an OpenAPI spec (or an
 installed Python library) → review the proposed tools → generate a full MCP
