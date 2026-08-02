@@ -13,6 +13,18 @@ export interface ToolParam {
   json_schema?: Record<string, unknown> | null;
 }
 
+/** Collapses a submit → poll → result API into one blocking tool. */
+export interface PollingConfig {
+  enabled: boolean;
+  id_field: string;
+  status_path: string;
+  status_field: string;
+  success_values: string[];
+  failure_values: string[];
+  interval_seconds: number;
+  max_attempts: number;
+}
+
 export interface ProposedTool {
   name: string;
   description: string;
@@ -21,6 +33,7 @@ export interface ProposedTool {
   params: ToolParam[];
   confirm_required: boolean;
   enabled: boolean;
+  polling: PollingConfig;
 }
 
 export interface AuthConfig {
@@ -30,6 +43,8 @@ export interface AuthConfig {
   value_prefix: string;
 }
 
+export type ServerKind = "http" | "python_sdk";
+
 export interface ParseResult {
   api_title: string;
   api_version: string;
@@ -38,6 +53,8 @@ export interface ParseResult {
   auth: AuthConfig;
   tools: ProposedTool[];
   llm_used: boolean;
+  kind: ServerKind;
+  sdk_module: string;
 }
 
 export interface GeneratedFile {
@@ -64,21 +81,39 @@ export interface ProjectState {
   generate_result: GenerateResult | null;
 }
 
-export interface TestToolResult {
-  request_method: string;
-  request_url: string;
-  request_headers: Record<string, string>;
-  request_body: unknown;
-  status_code: number | null;
-  response_headers: Record<string, string>;
-  response_body: unknown;
-  normalized: Record<string, unknown>;
+/** A tool as advertised by the running generated MCP server. */
+export interface McpTool {
+  name: string;
+  description: string;
+  input_schema: {
+    type?: string;
+    properties?: Record<string, JsonSchemaProp>;
+    required?: string[];
+  };
+}
+
+export interface JsonSchemaProp {
+  type?: string | string[];
+  title?: string;
+  description?: string;
+  default?: unknown;
+  anyOf?: { type?: string }[];
+}
+
+/** Result of one tools/call round-trip over MCP. */
+export interface McpCallResult {
+  tool: string;
+  args: Record<string, unknown>;
+  is_error: boolean;
+  structured: unknown;
+  text: string;
   latency_ms: number;
-  error: string | null;
 }
 
 export interface PublicConfig {
   llm_provider: string;
   llm_model: string;
   llm_enabled: boolean;
+  sdk_introspection_enabled: boolean;
+  sdk_allowed_modules: string[];
 }

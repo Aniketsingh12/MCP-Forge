@@ -46,13 +46,32 @@ class Settings:
         ]
         self.playground_timeout = float(os.getenv("PLAYGROUND_TIMEOUT", "30"))
 
+        # --- SDK introspection ---
+        # Introspecting a module IMPORTS it, which runs its top-level code. On a
+        # shared/hosted deployment that is remote code execution, so this is off
+        # unless explicitly enabled, and can be narrowed to an allowlist.
+        self.enable_sdk_introspection = _truthy(
+            os.getenv("ENABLE_SDK_INTROSPECTION", "false")
+        )
+        self.sdk_allowed_modules = [
+            m.strip()
+            for m in os.getenv("SDK_ALLOWED_MODULES", "").split(",")
+            if m.strip()
+        ]
+
     def as_public_dict(self) -> dict:
-        """LLM-related settings safe to expose to the frontend (no secrets)."""
+        """Settings safe to expose to the frontend (no secrets)."""
         return {
             "llm_provider": self.llm_provider,
             "llm_model": self.llm_model,
             "llm_enabled": self.llm_provider != "none",
+            "sdk_introspection_enabled": self.enable_sdk_introspection,
+            "sdk_allowed_modules": self.sdk_allowed_modules,
         }
+
+
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _default_data_dir() -> str:

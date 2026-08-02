@@ -5,7 +5,7 @@ import type { PublicConfig } from "../types";
 import Stepper from "../components/Stepper";
 import { SAMPLE_SPEC } from "../lib/sampleSpec";
 
-type Mode = "paste" | "url";
+type Mode = "paste" | "url" | "sdk";
 
 export default function NewProject() {
   const nav = useNavigate();
@@ -13,6 +13,7 @@ export default function NewProject() {
   const [mode, setMode] = useState<Mode>("paste");
   const [specText, setSpecText] = useState("");
   const [specUrl, setSpecUrl] = useState("");
+  const [sdkModule, setSdkModule] = useState("");
   const [useLlm, setUseLlm] = useState(false);
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,14 +39,22 @@ export default function NewProject() {
       setError("Enter a spec URL.");
       return;
     }
+    if (mode === "sdk" && !sdkModule.trim()) {
+      setError("Enter an installed Python module name, e.g. 'base64'.");
+      return;
+    }
     setBusy(true);
     try {
       const project = await api.createProject(name || "Untitled server");
-      await api.parse(project.id, {
-        spec_text: mode === "paste" ? specText : undefined,
-        spec_url: mode === "url" ? specUrl : undefined,
-        use_llm: useLlm,
-      });
+      if (mode === "sdk") {
+        await api.parseSdk(project.id, { module: sdkModule.trim(), use_llm: useLlm });
+      } else {
+        await api.parse(project.id, {
+          spec_text: mode === "paste" ? specText : undefined,
+          spec_url: mode === "url" ? specUrl : undefined,
+          use_llm: useLlm,
+        });
+      }
       nav(`/p/${project.id}/proposal`);
     } catch (e) {
       setError((e as Error).message);
@@ -62,8 +71,9 @@ export default function NewProject() {
           New MCP server
         </h1>
         <p className="mt-1 text-sm text-slate-400">
-          MVP maps an <span className="text-slate-200">OpenAPI 3 / Swagger 2</span>{" "}
-          spec directly to tools — deterministic and reliable.
+          Map an <span className="text-slate-200">OpenAPI 3 / Swagger 2</span> spec
+          or an installed <span className="text-slate-200">Python library</span>{" "}
+          directly to tools — deterministic and reliable.
         </p>
 
         <div className="card mt-6 space-y-5 p-6">
@@ -79,28 +89,38 @@ export default function NewProject() {
 
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">OpenAPI specification</label>
-              <button
-                onClick={loadSample}
-                className="text-xs text-forge-500 hover:text-forge-400"
-              >
-                Load sample (Petstore)
-              </button>
+              <label className="label mb-0">
+                {mode === "sdk" ? "Python library" : "OpenAPI specification"}
+              </label>
+              {mode !== "sdk" && (
+                <button
+                  onClick={loadSample}
+                  className="text-xs text-forge-500 hover:text-forge-400"
+                >
+                  Load sample (Petstore)
+                </button>
+              )}
             </div>
 
             <div className="mb-3 inline-flex rounded-lg border border-line bg-ink-950 p-0.5 text-sm">
-              {(["paste", "url"] as Mode[]).map((m) => (
+              {(["paste", "url", "sdk"] as Mode[]).map((m) => (
                 <button
                   key={m}
                   onClick={() => setMode(m)}
+                  disabled={m === "sdk" && !cfg?.sdk_introspection_enabled}
+                  title={
+                    m === "sdk" && !cfg?.sdk_introspection_enabled
+                      ? "Set ENABLE_SDK_INTROSPECTION=true to use this mode"
+                      : undefined
+                  }
                   className={
-                    "rounded-md px-3 py-1 " +
+                    "rounded-md px-3 py-1 disabled:cursor-not-allowed disabled:opacity-40 " +
                     (mode === m
                       ? "bg-ink-700 text-slate-100"
                       : "text-slate-400 hover:text-slate-200")
                   }
                 >
-                  {m === "paste" ? "Paste spec" : "From URL"}
+                  {m === "paste" ? "Paste spec" : m === "url" ? "From URL" : "Python library"}
                 </button>
               ))}
             </div>
@@ -112,13 +132,35 @@ export default function NewProject() {
                 value={specText}
                 onChange={(e) => setSpecText(e.target.value)}
               />
-            ) : (
+            ) : mode === "url" ? (
               <input
                 className="input"
                 placeholder="https://api.example.com/openapi.json"
                 value={specUrl}
                 onChange={(e) => setSpecUrl(e.target.value)}
               />
+            ) : (
+              <div>
+                <input
+                  className="input font-mono text-sm"
+                  placeholder="e.g. base64, pathlib, or an installed package"
+                  value={sdkModule}
+                  onChange={(e) => setSdkModule(e.target.value)}
+                />
+                <p className="mt-2 text-xs text-slate-400">
+                  Wraps a Python library's public functions as tools that run
+                  in-process — for software with no REST API.
+                </p>
+                <p className="mt-2 rounded-lg border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
+                  Introspection imports the module, which runs its top-level
+                  code. Only point this at libraries you trust.
+                </p>
+                {cfg?.sdk_allowed_modules?.length ? (
+                  <p className="mt-2 font-mono text-xs text-slate-500">
+                    allowed: {cfg.sdk_allowed_modules.join(", ")}
+                  </p>
+                ) : null}
+              </div>
             )}
           </div>
 

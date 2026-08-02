@@ -1,16 +1,18 @@
 # MCP Forge
 
-**MCP servers without the expertise.** Paste an OpenAPI spec → review the
-proposed tools → generate a full MCP server from audited templates → test each
-tool live against the real API → download a pip-installable package.
+**MCP servers without the expertise.** Point it at an OpenAPI spec (or an
+installed Python library) → review the proposed tools → generate a full MCP
+server from audited templates → **run it as a real MCP server** in the
+playground → download a pip-installable package.
 
 Generation is **deterministic** (no model required) and **open-source-model
 friendly** (optional description polishing via Ollama or any OpenAI-compatible
 endpoint). Ships as a **single deployable container**.
 
 ```
-OpenAPI spec  →  Tool proposal  →  Generate  →  Playground  →  Download
- (JSON/YAML)     (edit / gate)     (templates)   (live calls)   (.zip package)
+OpenAPI spec  ┐
+              ├→ Tool proposal → Generate → Playground → Download
+Python library┘   (edit / gate)  (templates) (real MCP)  (.zip package)
 ```
 
 ---
@@ -60,19 +62,26 @@ npm run dev            # http://localhost:5173
 ## Workflow: spec → running MCP server
 
 1. **New project** — Dashboard → **+ New server**, name it.
-2. **Input** — paste an OpenAPI 3 / Swagger 2 spec (JSON or YAML) or point at a
-   hosted spec URL. No spec handy? Click **Load sample (Petstore)**. Click
-   **Parse spec →**.
+2. **Input** — one of:
+   - paste an OpenAPI 3 / Swagger 2 spec (JSON or YAML), or a hosted spec URL.
+     No spec handy? Click **Load sample (Petstore)**;
+   - or pick **Python library** and name an installed module (see
+     [SDK mode](#python-sdk-mode) — off by default).
 3. **Tool proposal (the quality gate)** — every operation becomes a candidate
    tool. Uncheck what you don't want, rename tools, edit descriptions (this is
    what an agent reads to decide when to call a tool), and toggle
-   **confirm-required** (on by default for `POST/PUT/PATCH/DELETE`). Confirm
-   the base URL and auth type. Click **Generate server →**.
+   **confirm-required** (on by default for `POST/PUT/PATCH/DELETE`). For
+   submit-then-poll APIs, toggle **long-running job** (see
+   [async jobs](#async-jobs)). Confirm the base URL and auth type. Click
+   **Generate server →**.
 4. **Generate** — template-driven codegen runs (no model involved); browse the
    file tree and check the ✓ **validated** badge.
-5. **Playground** — pick a tool, fill the auto-generated param form, enter your
-   real credential (session-only, never persisted), **▶ Run tool** against the
-   live API. Iterate: edit a tool in step 3, regenerate, retest.
+5. **Playground** — MCP Forge launches your generated package **as a real MCP
+   server** over stdio, performs the protocol handshake, and lists the tools it
+   actually advertises. Pick one, fill the form built from its real JSON schema,
+   enter your credential (session-only, never persisted), and **▶ Call tool** —
+   this is a genuine `tools/call`, so what you test is the code you download.
+   Iterate: edit a tool in step 3, regenerate, retest.
 6. **Export** — **Download .zip**, or copy the **Claude Desktop config**
    snippet shown on this page.
 7. **Run it for real:**
@@ -114,6 +123,49 @@ docker compose exec ollama ollama pull llama3.1
 
 ---
 
+## <a id="async-jobs"></a>Async jobs (submit → poll → result)
+
+Generative-AI APIs usually return a job id and expect you to poll a status
+endpoint. Left alone that becomes two unrelated tools and the agent has to
+invent the loop. Toggle **long-running job** on a tool and configure:
+
+| Field | Meaning | Example |
+|-------|---------|---------|
+| Job id field | where the submit response carries the id | `id`, `data.job_id` |
+| Status path | status endpoint; `{job_id}` is substituted | `/jobs/{job_id}` |
+| Status field | where the status response carries state | `status` |
+| Success / failure values | terminal states | `succeeded` / `failed` |
+| Interval, max polls | pacing and give-up point | `2.0`, `60` |
+
+The generated tool submits, polls until the job resolves, and returns the final
+result — one call, no orchestration on the agent's side. Timeouts and failure
+states come back as normal error envelopes.
+
+---
+
+## <a id="python-sdk-mode"></a>Python SDK mode
+
+Not everything has a REST API. Playwright, Blender's `bpy`, and similar tools
+expose a **Python library** instead. In that mode MCP Forge introspects an
+installed module and generates tools that call it **in-process** — same audited
+scaffold (error normalization, confirm gates, packaging), no HTTP layer.
+
+```bash
+ENABLE_SDK_INTROSPECTION=true
+SDK_ALLOWED_MODULES=playwright,pandas    # optional; empty = any installed module
+```
+
+> **This is off by default, and should stay off on shared deployments.**
+> Introspection *imports* the module, which executes its top-level code — on a
+> hosted instance that is remote code execution. Enable it for local,
+> single-user use, and use `SDK_ALLOWED_MODULES` to narrow what can be imported.
+
+Scope: public module-level functions with introspectable signatures. Methods
+that need a constructed instance, and `*args`/`**kwargs`, are skipped — those
+remain hand-built work.
+
+---
+
 ## Deploy
 
 Because it's one container that listens on `$PORT`, it drops onto most hosts:
@@ -134,7 +186,7 @@ Because it's one container that listens on `$PORT`, it drops onto most hosts:
 
 ## What's generated
 
-For each spec you get a complete, runnable package:
+For each project you get a complete, runnable package:
 
 ```
 <server_slug>/
@@ -147,9 +199,13 @@ For each spec you get a complete, runnable package:
 └── claude_desktop_config.json   # drop-in MCP client config
 ```
 
-Auth injection, HTTP transport, and error normalization come from **audited
-templates** — only the tool set reflects your API. Write actions
-(`POST/PUT/PATCH/DELETE`) are gated behind a `confirm=True` argument by default.
+Auth injection, transport, and error normalization come from **audited
+templates** — only the tool set reflects your API or library. Write actions
+(`POST/PUT/PATCH/DELETE`, or mutating-sounding library functions) are gated
+behind a `confirm=True` argument by default.
+
+`mcp` is pinned `<2` in generated packages: 2.0 replaced `FastMCP` with
+`MCPServer`, and the 1.x API is what MCP client documentation describes.
 
 ---
 
@@ -159,8 +215,10 @@ templates** — only the tool set reflects your API. Write actions
 React + Vite + Tailwind (SPA)
         │  relative /api  (Vite proxy in dev; same-origin in prod)
 FastAPI
-  ├─ generation/  openapi_parser → proposer(LLM, optional) → codegen(Jinja) → validator(AST)
-  ├─ playground/  live tool runner (session-scoped creds, SSRF guard, egress allowlist)
+  ├─ generation/  openapi_parser ┐
+  │               sdk_introspect ┴→ proposer(LLM, opt) → codegen(Jinja) → validator(compile)
+  ├─ playground/  mcp_runner: spawns generated server, drives it over stdio
+  │               netguard:   egress allowlist + SSRF check before launch
   ├─ export/      zip packager
   └─ db (SQLite)  projects + parse/generate results
 ```
@@ -168,10 +226,12 @@ FastAPI
 Design choices vs. the original spec, for a self-contained MVP:
 
 - **SQLite** instead of Supabase — zero external services, deploys anywhere.
-- **Playground replicates the request** (same auth/param logic the generated
-  server uses) with an SSRF guard + egress allowlist, instead of spawning a
-  Docker sandbox per session. Generated code quality is proven by running each
-  package's own test suite against the real MCP SDK.
+- **The playground runs the real thing.** Your generated package is written to a
+  temp directory and launched as an MCP server; the backend is a generic MCP
+  client speaking stdio JSON-RPC to it. Isolation is process-level (scrubbed
+  environment, temp cwd, timeout, torn down after each call) rather than a
+  container — adequate for code you just generated yourself, not a hostile-code
+  sandbox.
 - **Synchronous generation** — it's fast and template-bound, so no Celery/Redis.
 
 ### Security notes
@@ -185,23 +245,31 @@ Design choices vs. the original spec, for a self-contained MVP:
   see a "valid" badge.
 - The static-file route resolves and containment-checks every path, so `..`
   segments can't escape the frontend's `dist/` directory.
-- The playground's SSRF guard blocks private/loopback/link-local targets
-  (including NAT64-wrapped addresses) and supports an optional host allowlist
-  (`PLAYGROUND_ALLOWLIST`). **Known limitation:** it resolves DNS once to check
-  the target, then hands the URL to `httpx`, which resolves again — a hostile
-  DNS server could answer differently the second time (DNS rebinding). Don't
-  point the playground at untrusted specs from parties you don't trust.
+- The playground's generated server makes its own HTTP calls, so the base URL is
+  validated **before** the process launches: private/loopback/link-local targets
+  are refused (including NAT64-wrapped addresses) and `PLAYGROUND_ALLOWLIST` can
+  restrict permitted hosts. **Known limitation:** the guard resolves DNS to
+  validate, then the child resolves again when it connects — a hostile DNS
+  server could answer differently the second time (DNS rebinding). Don't point
+  the playground at specs from parties you don't trust.
+- **Python SDK mode is disabled by default** because introspection imports the
+  target module, executing its code. See [Python SDK mode](#python-sdk-mode).
 
 ---
 
 ## MVP scope (per spec) & roadmap
 
-**In:** OpenAPI input, API-key/bearer/basic auth, tool-proposal quality gate,
-template generation, playground tool test panel, download export.
+**In:** OpenAPI + Python-library input, API-key/bearer/basic auth,
+tool-proposal quality gate, async job polling, template generation, a playground
+that drives the real MCP protocol, download export.
 
 **Not yet:** plain-text/docs-URL parsing, OAuth2 token refresh, agent-chat
 playground, hosted deploys, GitHub push, billing, versioning — these are the
 V2/V3 layers from the spec and slot into the existing structure.
+
+**Out of scope by design:** integrations that need a plugin *inside* a running
+desktop app (Blender's `bpy`, Unreal) can't be generated — they need a
+hand-written bridge addon on the far side. That's the spec's Custom tier.
 
 ---
 
@@ -216,7 +284,9 @@ pytest tests/ -q
 
 Covers: the Petstore spec yields the expected tools with write actions gated;
 duplicate path/operation-level params don't produce uncompilable output;
-hostile spec/user input (in auth header names, base URLs) can't become
-executable code; the validator rejects duplicate function arguments; and path
-parameters are URL-encoded. `python tests/test_pipeline.py` run directly also
-prints the full generated `server.py` for inspection.
+hostile spec/user input (auth header names, base URLs, module paths) can't
+become executable code; the validator rejects duplicate function arguments; path
+parameters are URL-encoded; polling emits a submit-and-poll tool (and no dead
+helper code when unused); and SDK introspection stays disabled without the env
+flag. `python tests/test_pipeline.py` run directly also prints the full
+generated `server.py` for inspection.

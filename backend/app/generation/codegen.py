@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import keyword
 import re
+import sys
 import textwrap
 from pathlib import Path
 
@@ -37,8 +38,11 @@ _JSON_TO_PY = {
 def generate(req: GenerateRequest) -> list[GeneratedFile]:
     tools = [t for t in req.tools if t.enabled]
     server_slug = _safe_slug(req.server_slug)
+    is_sdk = req.kind == "python_sdk"
 
-    tool_functions = "\n\n".join(_render_tool(t) for t in tools)
+    tool_functions = "\n\n".join(
+        (_render_sdk_tool(t) if is_sdk else _render_tool(t)) for t in tools
+    )
     auth_block = _auth_block(req.auth)
     credential_hint = _credential_hint(req.auth)
     claude_config = _claude_config(server_slug)
@@ -46,22 +50,42 @@ def generate(req: GenerateRequest) -> list[GeneratedFile]:
     # server.py is Python source: anything spec- or user-supplied that lands
     # inside it must be emitted as a literal (or, for prose in the module
     # docstring, stripped of sequences that could close the docstring early).
-    server_py = _env.get_template("server.py.jinja").render(
-        api_title=_doc_safe(req.api_title or "API"),
-        server_slug=server_slug,
-        server_slug_literal=_lit(server_slug),
-        base_url=req.base_url,
-        base_url_literal=_lit(req.base_url),
-        auth_block=auth_block,
-        tool_functions=tool_functions,
-        credential_hint=_doc_safe(credential_hint),
-    )
+    if is_sdk:
+        sdk_module = _safe_module(req.sdk_module)
+        server_py = _env.get_template("sdk_server.py.jinja").render(
+            api_title=_doc_safe(req.api_title or sdk_module),
+            sdk_module=sdk_module,
+            sdk_root=sdk_module.split(".")[0],
+            server_slug_literal=_lit(server_slug),
+            tool_functions=tool_functions,
+        )
+    else:
+        server_py = _env.get_template("server.py.jinja").render(
+            api_title=_doc_safe(req.api_title or "API"),
+            server_slug=server_slug,
+            server_slug_literal=_lit(server_slug),
+            base_url=req.base_url,
+            base_url_literal=_lit(req.base_url),
+            auth_block=auth_block,
+            tool_functions=tool_functions,
+            credential_hint=_doc_safe(credential_hint),
+            # Don't ship polling helpers into packages that never poll.
+            needs_polling=any(
+                t.polling.enabled and t.polling.status_path for t in tools
+            ),
+        )
 
     ctx_common = dict(
         api_title=req.api_title or "API",
         server_slug=server_slug,
         base_url=req.base_url,
         credential_hint=credential_hint,
+        # HTTP servers need an HTTP client; SDK servers need the wrapped library
+        # — unless it ships with Python, in which case there's nothing to pin.
+        extra_deps=(
+            _sdk_deps(req.sdk_module) if is_sdk else ["httpx>=0.27"]
+        ),
+        kind=req.kind,
     )
 
     readme = _env.get_template("README.md.jinja").render(
@@ -155,10 +179,27 @@ def _render_tool(tool: ProposedTool) -> str:
 
     body_arg = f"{_safe_ident(body_param.name)}" if body_param else "None"
 
-    body_lines.append(
-        f"return _request({_lit(tool.method)}, {_lit(tool.path)}, "
-        f"path_params=path_params, query=query, body={body_arg})"
-    )
+    poll = tool.polling
+    if poll.enabled and poll.status_path:
+        # Submit-then-poll: one tool call blocks until the job resolves.
+        body_lines += [
+            f"return _submit_and_poll(",
+            f"    {_lit(tool.method)}, {_lit(tool.path)},",
+            f"    path_params, query, {body_arg},",
+            f"    id_field={_lit(poll.id_field)},",
+            f"    status_path={_lit(poll.status_path)},",
+            f"    status_field={_lit(poll.status_field)},",
+            f"    success_values={_lit_list(poll.success_values)},",
+            f"    failure_values={_lit_list(poll.failure_values)},",
+            f"    interval={float(poll.interval_seconds)!r},",
+            f"    max_attempts={int(poll.max_attempts)!r},",
+            f")",
+        ]
+    else:
+        body_lines.append(
+            f"return _request({_lit(tool.method)}, {_lit(tool.path)}, "
+            f"path_params=path_params, query=query, body={body_arg})"
+        )
 
     body = textwrap.indent("\n".join(body_lines), "    ")
     ret_type = " -> dict:"
@@ -168,6 +209,41 @@ def _render_tool(tool: ProposedTool) -> str:
         f"def {fn_name}({signature}){ret_type}\n"
         f'    """{doc}"""\n'
         f"{body}"
+    )
+
+
+def _render_sdk_tool(tool: ProposedTool) -> str:
+    """Render a tool that calls a Python library function in-process."""
+    fn_name = _safe_ident(tool.name)
+    sig_parts = _signature(tool)
+    if tool.confirm_required:
+        sig_parts.append("confirm: bool = False")
+
+    body_lines: list[str] = []
+    if tool.confirm_required:
+        warning = (
+            f"This may modify state ({tool.path}). "
+            "Re-call with confirm=True to proceed."
+        )
+        body_lines += [
+            "if not confirm:",
+            "    return {",
+            '        "ok": False,',
+            f"        \"error\": {_lit(warning)},",
+            '        "error_type": "ConfirmationRequired",',
+            "    }",
+        ]
+
+    kwargs = ", ".join(
+        f"{_lit(p.name)}: {_safe_ident(p.name)}" for p in _unique_params(tool)
+    )
+    body_lines.append(f"return _call({_lit(tool.path)}, {{{kwargs}}})")
+
+    return (
+        "@mcp.tool()\n"
+        f"def {fn_name}({', '.join(sig_parts)}) -> dict:\n"
+        f'    """{_docstring(tool)}"""\n'
+        + textwrap.indent("\n".join(body_lines), "    ")
     )
 
 
@@ -195,12 +271,20 @@ def _docstring(tool: ProposedTool) -> str:
     desc = desc.replace("\\", "\\\\")
     if tool.confirm_required:
         desc += " (write action - requires confirm=True)"
+    if tool.polling.enabled and tool.polling.status_path:
+        # The agent should know this call blocks and already returns the result.
+        desc += " Submits the job and waits for it to finish, returning the final result."
     return desc
 
 
 def _lit(value: str) -> str:
     """Render ``value`` as a safe Python string literal for generated source."""
     return repr(str(value))
+
+
+def _lit_list(values: list[str]) -> str:
+    """Render a list of strings as a safe Python list literal."""
+    return "[" + ", ".join(_lit(v) for v in values) + "]"
 
 
 def _doc_safe(text: str) -> str:
@@ -313,3 +397,23 @@ def _safe_ident(name: str) -> str:
 def _safe_slug(slug: str) -> str:
     slug = re.sub(r"[^0-9a-zA-Z_]", "_", slug).strip("_").lower()
     return slug or "generated_mcp"
+
+
+def _sdk_deps(module_name: str) -> list[str]:
+    """Third-party root package for the wrapped library, if it needs installing."""
+    root = _safe_module(module_name).split(".")[0]
+    if root in getattr(sys, "stdlib_module_names", frozenset()):
+        return []
+    return [root]
+
+
+def _safe_module(name: str) -> str:
+    """Validate a dotted module path before it becomes an `import` statement.
+
+    This one can't be escaped with repr() — it lands in real import syntax — so
+    anything that isn't a plain dotted identifier is rejected outright.
+    """
+    name = (name or "").strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*", name):
+        raise ValueError(f"Unsafe or invalid module path: {name!r}")
+    return name

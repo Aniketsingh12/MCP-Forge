@@ -199,6 +199,120 @@ def test_path_params_are_url_encoded():
     assert "quote(str(value), safe=" in server.content
 
 
+def test_polling_tool_emits_submit_and_poll():
+    """A long-running job becomes one blocking tool, not two unrelated ones."""
+    from app.models import AuthConfig, PollingConfig, ProposedTool, ToolParam
+
+    tool = ProposedTool(
+        name="generate_image", description="Generate", method="POST", path="/jobs",
+        params=[ToolParam(name="body", type="object", required=True, location="body")],
+        polling=PollingConfig(
+            enabled=True, id_field="id", status_path="/jobs/{job_id}",
+            status_field="status", interval_seconds=0.5, max_attempts=5,
+        ),
+    )
+    files = codegen.generate(
+        GenerateRequest(server_slug="img", api_title="Img",
+                        base_url="https://api.example.com",
+                        auth=AuthConfig(type="none"), tools=[tool])
+    )
+    server = next(f for f in files if f.path == "server.py")
+    compile(server.content, "server.py", "exec")
+    assert "_submit_and_poll(" in server.content
+    assert "status_path='/jobs/{job_id}'" in server.content
+    ok, msgs = validator.validate(files)
+    assert ok, msgs
+
+
+def test_polling_off_by_default_emits_plain_request():
+    _, files = _gen(
+        {
+            "openapi": "3.0.0",
+            "info": {"title": "P", "version": "1"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {"/things": {"get": {"operationId": "listThings"}}},
+        }
+    )
+    server = next(f for f in files if f.path == "server.py")
+    assert "_submit_and_poll(" not in server.content
+    assert "return _request(" in server.content
+
+
+# --------------------------------------------------------------------------- #
+# SDK introspection mode
+# --------------------------------------------------------------------------- #
+def test_sdk_introspection_is_disabled_by_default(monkeypatch):
+    """Importing a module runs its code, so this must never be on implicitly."""
+    from app.config import get_settings
+    from app.generation import sdk_introspect
+
+    monkeypatch.delenv("ENABLE_SDK_INTROSPECTION", raising=False)
+    get_settings.cache_clear()
+    with pytest.raises(sdk_introspect.SdkIntrospectError, match="disabled"):
+        sdk_introspect.introspect("base64")
+    get_settings.cache_clear()
+
+
+def test_sdk_allowlist_blocks_other_modules(monkeypatch):
+    from app.config import get_settings
+    from app.generation import sdk_introspect
+
+    monkeypatch.setenv("ENABLE_SDK_INTROSPECTION", "true")
+    monkeypatch.setenv("SDK_ALLOWED_MODULES", "base64")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(sdk_introspect.SdkIntrospectError, match="not in SDK_ALLOWED"):
+            sdk_introspect.introspect("subprocess")
+    finally:
+        get_settings.cache_clear()
+
+
+def test_sdk_generation_produces_valid_in_process_server(monkeypatch):
+    from app.config import get_settings
+    from app.generation import sdk_introspect
+
+    monkeypatch.setenv("ENABLE_SDK_INTROSPECTION", "true")
+    monkeypatch.delenv("SDK_ALLOWED_MODULES", raising=False)
+    get_settings.cache_clear()
+    try:
+        parsed = sdk_introspect.introspect("base64")
+        assert parsed.kind == "python_sdk" and parsed.sdk_module == "base64"
+        files = codegen.generate(
+            GenerateRequest(
+                server_slug=parsed.server_slug, api_title=parsed.api_title,
+                base_url="", auth=parsed.auth, tools=parsed.tools,
+                kind=parsed.kind, sdk_module=parsed.sdk_module,
+            )
+        )
+        server = next(f for f in files if f.path == "server.py")
+        compile(server.content, "server.py", "exec")
+        assert "import base64 as _sdk" in server.content
+        assert "httpx" not in server.content  # no HTTP layer in an SDK server
+        # stdlib modules must not be emitted as pip requirements
+        reqs = next(f for f in files if f.path == "requirements.txt").content
+        assert "base64" not in reqs
+        ok, msgs = validator.validate(files)
+        assert ok, msgs
+    finally:
+        get_settings.cache_clear()
+
+
+def test_sdk_module_path_cannot_inject_import_statement():
+    """sdk_module lands in real `import` syntax and can't be repr()-escaped."""
+    from app.models import AuthConfig, ProposedTool
+
+    with pytest.raises(ValueError, match="Unsafe or invalid module path"):
+        codegen.generate(
+            GenerateRequest(
+                server_slug="x", api_title="X", base_url="",
+                auth=AuthConfig(type="none"),
+                tools=[ProposedTool(name="t", method="CALL", path="f")],
+                kind="python_sdk",
+                sdk_module="os, sys; __import__('os').system('whoami')",
+            )
+        )
+
+
 if __name__ == "__main__":
     parsed, files, ok, messages = build()
     print(f"Parsed API: {parsed.api_title}  base={parsed.base_url}")

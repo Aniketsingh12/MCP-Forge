@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import httpx
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from .. import db
 from ..config import get_settings
-from ..generation import codegen, proposer, validator
+from ..generation import codegen, proposer, sdk_introspect, validator
 from ..generation.openapi_parser import SpecParseError, parse_spec
 from ..models import (
     GenerateRequest,
@@ -39,6 +40,35 @@ def parse(project_id: str, req: ParseRequest) -> ParseResult:
         result = parse_spec(spec_text)
     except SpecParseError as e:
         raise HTTPException(422, f"Could not parse spec: {e}")
+
+    if req.use_llm:
+        result = proposer.polish_descriptions(result)
+
+    project.parse_result = result
+    project.status = "proposed"
+    db.save_project(project)
+    return result
+
+
+class SdkParseRequest(BaseModel):
+    module: str
+    use_llm: bool = False
+
+
+@router.post("/projects/{project_id}/parse-sdk")
+def parse_sdk(project_id: str, req: SdkParseRequest) -> ParseResult:
+    """Introspect an installed Python library into a tool proposal.
+
+    Gated by ENABLE_SDK_INTROSPECTION — importing a module runs its code.
+    """
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    try:
+        result = sdk_introspect.introspect(req.module)
+    except sdk_introspect.SdkIntrospectError as e:
+        raise HTTPException(422, str(e))
 
     if req.use_llm:
         result = proposer.polish_descriptions(result)

@@ -1,6 +1,73 @@
 import { useState } from "react";
-import type { ProposedTool } from "../types";
+import type { PollingConfig, ProposedTool } from "../types";
 import { cx, methodColor } from "../lib/utils";
+
+/** Config for submit → poll → result APIs (image/video generation, exports…). */
+function PollingFields({
+  polling,
+  onChange,
+}: {
+  polling: PollingConfig;
+  onChange: (p: PollingConfig) => void;
+}) {
+  const set = (patch: Partial<PollingConfig>) => onChange({ ...polling, ...patch });
+  const field = (
+    label: string,
+    value: string | number,
+    onEdit: (v: string) => void,
+    hint?: string
+  ) => (
+    <div>
+      <label className="label mb-1 normal-case tracking-normal">{label}</label>
+      <input
+        className="input font-mono text-xs"
+        value={value}
+        placeholder={hint}
+        onChange={(e) => onEdit(e.target.value)}
+      />
+    </div>
+  );
+
+  return (
+    <div className="mt-3 rounded-lg border border-sky-900/40 bg-sky-950/10 p-3">
+      <p className="mb-3 text-xs text-slate-400">
+        The tool submits the job, then polls until it finishes and returns the
+        final result — so the agent never has to run the loop itself.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {field("Job id field (in submit response)", polling.id_field, (v) =>
+          set({ id_field: v }), "id"
+        )}
+        {field("Status path", polling.status_path, (v) => set({ status_path: v }),
+          "/jobs/{job_id}"
+        )}
+        {field("Status field", polling.status_field, (v) => set({ status_field: v }),
+          "status"
+        )}
+        {field("Success values (comma-sep)", polling.success_values.join(", "), (v) =>
+          set({ success_values: v.split(",").map((s) => s.trim()).filter(Boolean) })
+        )}
+        {field("Failure values (comma-sep)", polling.failure_values.join(", "), (v) =>
+          set({ failure_values: v.split(",").map((s) => s.trim()).filter(Boolean) })
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          {field("Interval (s)", polling.interval_seconds, (v) =>
+            set({ interval_seconds: Number(v) || 0 })
+          )}
+          {field("Max polls", polling.max_attempts, (v) =>
+            set({ max_attempts: Number(v) || 0 })
+          )}
+        </div>
+      </div>
+      {!polling.status_path && (
+        <p className="mt-2 text-xs text-amber-400">
+          A status path is required — without it this tool falls back to a plain
+          single request.
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function ToolEditor({
   tool,
@@ -77,7 +144,33 @@ export default function ToolEditor({
                 </span>
               )}
             </label>
+            <label
+              className="flex cursor-pointer items-center gap-1.5 text-slate-400"
+              title="For submit → poll → result APIs: the tool waits for the job and returns the final result."
+            >
+              <input
+                type="checkbox"
+                checked={tool.polling.enabled}
+                onChange={(e) =>
+                  set({ polling: { ...tool.polling, enabled: e.target.checked } })
+                }
+                className="accent-forge-500"
+              />
+              long-running job
+              {tool.polling.enabled && (
+                <span className="badge border-sky-800/60 bg-sky-950/40 text-sky-300">
+                  polls
+                </span>
+              )}
+            </label>
           </div>
+
+          {tool.polling.enabled && (
+            <PollingFields
+              polling={tool.polling}
+              onChange={(polling) => set({ polling })}
+            />
+          )}
 
           {open && tool.params.length > 0 && (
             <div className="mt-3 overflow-hidden rounded-lg border border-line">

@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Optional
+{% if needs_polling %}import time
+{% endif %}from typing import Any, Optional
 from urllib.parse import quote
 
 import httpx
@@ -24,6 +25,9 @@ from mcp.server.fastmcp import FastMCP
 BASE_URL = os.environ.get("API_BASE_URL", {{ base_url_literal }}).rstrip("/")
 API_CREDENTIAL = os.environ.get("API_CREDENTIAL", "")
 REQUEST_TIMEOUT = float(os.environ.get("API_TIMEOUT", "30"))
+# When set, each result carries a redacted echo of the outgoing request. The
+# MCP Forge playground switches this on to render a request trace.
+DEBUG_ECHO = os.environ.get("MCP_FORGE_DEBUG") == "1"
 
 mcp = FastMCP({{ server_slug_literal }})
 _client = httpx.Client(timeout=REQUEST_TIMEOUT)
@@ -70,9 +74,28 @@ def _request(
             auth=basic,
         )
     except httpx.RequestError as exc:
-        return {"ok": False, "status": None, "error": f"network error: {exc}", "data": None}
+        result = {"ok": False, "status": None, "error": f"network error: {exc}", "data": None}
+        return _with_echo(result, method, url, clean_query, body)
 
-    return _normalize(response)
+    return _with_echo(_normalize(response), method, str(response.request.url), clean_query, body)
+
+
+def _with_echo(
+    result: dict[str, Any],
+    method: str,
+    url: str,
+    query: dict[str, Any],
+    body: Any,
+) -> dict[str, Any]:
+    """Attach a redacted echo of the request when debug echo is enabled."""
+    if not DEBUG_ECHO:
+        return result
+    safe_url = url
+    if API_CREDENTIAL:
+        # The credential can ride in the query string; never echo it back.
+        safe_url = safe_url.replace(API_CREDENTIAL, "***")
+    result["_request"] = {"method": method, "url": safe_url, "body": body}
+    return result
 
 
 def _normalize(response: httpx.Response) -> dict[str, Any]:
@@ -97,7 +120,81 @@ def _normalize(response: httpx.Response) -> dict[str, Any]:
     return {"ok": False, "status": response.status_code, "error": error, "data": data}
 
 
-# --------------------------------------------------------------------------- #
+{% if needs_polling %}def _dig(data: Any, dotted: str) -> Any:
+    """Fetch a possibly-nested value, e.g. "data.job.id"."""
+    for part in dotted.split("."):
+        if isinstance(data, dict) and part in data:
+            data = data[part]
+        else:
+            return None
+    return data
+
+
+def _submit_and_poll(
+    method: str,
+    path: str,
+    path_params: dict[str, Any] | None,
+    query: dict[str, Any] | None,
+    body: Any,
+    *,
+    id_field: str,
+    status_path: str,
+    status_field: str,
+    success_values: list[str],
+    failure_values: list[str],
+    interval: float,
+    max_attempts: int,
+) -> dict[str, Any]:
+    """Submit a job, then poll until it finishes; return the final status body.
+
+    Collapses a submit/poll/fetch API into one call so the agent doesn't have to
+    orchestrate the loop itself.
+    """
+    submitted = _request(method, path, path_params=path_params, query=query, body=body)
+    if not submitted.get("ok"):
+        return submitted
+
+    job_id = _dig(submitted.get("data"), id_field)
+    if job_id is None:
+        return {
+            "ok": False,
+            "status": submitted.get("status"),
+            "error": f"submit succeeded but no job id at '{id_field}'",
+            "data": submitted.get("data"),
+        }
+
+    for attempt in range(max_attempts):
+        time.sleep(interval)
+        polled = _request("GET", status_path, path_params={"job_id": job_id})
+        if not polled.get("ok"):
+            return polled
+
+        state = _dig(polled.get("data"), status_field)
+        state_str = str(state).lower() if state is not None else ""
+        if state_str in [s.lower() for s in success_values]:
+            polled["job_id"] = job_id
+            polled["attempts"] = attempt + 1
+            return polled
+        if state_str in [s.lower() for s in failure_values]:
+            return {
+                "ok": False,
+                "status": polled.get("status"),
+                "error": f"job {job_id} ended with status '{state}'",
+                "data": polled.get("data"),
+            }
+
+    return {
+        "ok": False,
+        "status": None,
+        "error": (
+            f"job {job_id} did not finish within "
+            f"{max_attempts} polls ({max_attempts * interval:.0f}s)"
+        ),
+        "data": {"job_id": job_id},
+    }
+
+
+{% endif %}# --------------------------------------------------------------------------- #
 # Tools
 # --------------------------------------------------------------------------- #
 {{ tool_functions }}

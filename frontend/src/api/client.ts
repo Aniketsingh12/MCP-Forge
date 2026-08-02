@@ -1,11 +1,12 @@
 import type {
   AuthConfig,
   GenerateResult,
+  McpCallResult,
+  McpTool,
   ParseResult,
   ProjectState,
   ProposedTool,
   PublicConfig,
-  TestToolResult,
 } from "../types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -49,6 +50,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  parseSdk: (id: string, payload: { module: string; use_llm?: boolean }) =>
+    req<ParseResult>(`/api/projects/${id}/parse-sdk`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   generate: (
     id: string,
     payload: {
@@ -57,6 +64,8 @@ export const api = {
       base_url: string;
       auth: AuthConfig;
       tools: ProposedTool[];
+      kind?: string;
+      sdk_module?: string;
     }
   ) =>
     req<GenerateResult>(`/api/projects/${id}/generate`, {
@@ -64,14 +73,23 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  testTool: (payload: {
-    base_url: string;
-    auth: AuthConfig;
-    credential: string;
-    tool: ProposedTool;
-    args: Record<string, unknown>;
-  }) =>
-    req<TestToolResult>("/api/playground/test", {
+  // Playground runs the generated package as a real MCP server over stdio.
+  mcpTools: (id: string, payload: { base_url?: string; credential?: string }) =>
+    req<{ tools: McpTool[] }>(`/api/playground/${id}/tools`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  mcpCall: (
+    id: string,
+    payload: {
+      base_url?: string;
+      credential?: string;
+      tool: string;
+      args: Record<string, unknown>;
+    }
+  ) =>
+    req<McpCallResult>(`/api/playground/${id}/call`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),

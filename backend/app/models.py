@@ -6,6 +6,8 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 AuthType = Literal["none", "api_key", "bearer", "basic"]
+# "http" wraps a REST API; "python_sdk" wraps an installed Python library.
+ServerKind = Literal["http", "python_sdk"]
 ProjectStatus = Literal["draft", "proposed", "generated", "tested"]
 
 
@@ -14,10 +16,34 @@ class ToolParam(BaseModel):
     type: str = "string"  # JSON schema primitive: string/integer/number/boolean/array/object
     description: str = ""
     required: bool = False
-    location: Literal["query", "path", "header", "body"] = "query"
+    location: Literal["query", "path", "header", "body", "python_arg"] = "query"
     # For body params we keep the raw JSON schema so nested objects survive.
     # (named json_schema to avoid shadowing pydantic's BaseModel.schema)
     json_schema: Optional[dict[str, Any]] = None
+
+
+class PollingConfig(BaseModel):
+    """Turn a submit → poll → fetch-result API into a single blocking tool.
+
+    Generative-AI APIs (image/video/audio jobs) typically return a job id, then
+    expect the caller to poll a status endpoint until it completes. Without this
+    an agent sees two unrelated tools and has to invent the loop itself.
+    """
+    enabled: bool = False
+    # Where the submit response carries the job id, e.g. "id" or "data.job_id".
+    id_field: str = "id"
+    # Status endpoint; "{job_id}" is substituted, e.g. "/jobs/{job_id}".
+    status_path: str = ""
+    # Where the status response carries the state, e.g. "status".
+    status_field: str = "status"
+    success_values: list[str] = Field(
+        default_factory=lambda: ["succeeded", "completed", "success", "done", "finished"]
+    )
+    failure_values: list[str] = Field(
+        default_factory=lambda: ["failed", "error", "cancelled", "canceled"]
+    )
+    interval_seconds: float = 2.0
+    max_attempts: int = 60
 
 
 class ProposedTool(BaseModel):
@@ -28,6 +54,7 @@ class ProposedTool(BaseModel):
     params: list[ToolParam] = Field(default_factory=list)
     confirm_required: bool = False  # write-actions gated behind a confirm flag
     enabled: bool = True
+    polling: PollingConfig = Field(default_factory=PollingConfig)
 
     @property
     def is_write(self) -> bool:
@@ -63,14 +90,18 @@ class ParseResult(BaseModel):
     auth: AuthConfig
     tools: list[ProposedTool]
     llm_used: bool = False
+    kind: ServerKind = "http"
+    sdk_module: str = ""
 
 
 class GenerateRequest(BaseModel):
     server_slug: str
     api_title: str = ""
-    base_url: str
+    base_url: str = ""
     auth: AuthConfig
     tools: list[ProposedTool]
+    kind: ServerKind = "http"
+    sdk_module: str = ""
 
 
 class GeneratedFile(BaseModel):
@@ -84,27 +115,6 @@ class GenerateResult(BaseModel):
     files: list[GeneratedFile]
     valid: bool
     validation_messages: list[str] = Field(default_factory=list)
-
-
-class TestToolRequest(BaseModel):
-    base_url: str
-    auth: AuthConfig
-    credential: str = ""  # api key / bearer token / "user:pass"
-    tool: ProposedTool
-    args: dict[str, Any] = Field(default_factory=dict)
-
-
-class TestToolResult(BaseModel):
-    request_method: str
-    request_url: str
-    request_headers: dict[str, str]
-    request_body: Optional[Any] = None
-    status_code: Optional[int] = None
-    response_headers: dict[str, str] = Field(default_factory=dict)
-    response_body: Any = None
-    normalized: dict[str, Any]
-    latency_ms: int
-    error: Optional[str] = None
 
 
 class ProjectState(BaseModel):

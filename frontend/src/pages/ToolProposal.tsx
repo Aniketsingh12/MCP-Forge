@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { AuthConfig, ProposedTool } from "../types";
+import type { AuthConfig, ProposedTool, ServerKind } from "../types";
 import Stepper from "../components/Stepper";
 import ToolEditor from "../components/ToolEditor";
 
@@ -16,6 +16,8 @@ export default function ToolProposal() {
   const [baseUrl, setBaseUrl] = useState("");
   const [auth, setAuth] = useState<AuthConfig | null>(null);
   const [tools, setTools] = useState<ProposedTool[]>([]);
+  const [kind, setKind] = useState<ServerKind>("http");
+  const [sdkModule, setSdkModule] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +36,8 @@ export default function ToolProposal() {
         setBaseUrl(pr.base_url);
         setAuth(pr.auth);
         setTools(pr.tools);
+        setKind(pr.kind ?? "http");
+        setSdkModule(pr.sdk_module ?? "");
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
@@ -54,7 +58,7 @@ export default function ToolProposal() {
       setError("Enable at least one tool.");
       return;
     }
-    if (!baseUrl.trim()) {
+    if (kind === "http" && !baseUrl.trim()) {
       setError("A base URL is required — the spec didn't include one.");
       return;
     }
@@ -66,6 +70,8 @@ export default function ToolProposal() {
         base_url: baseUrl.trim(),
         auth,
         tools,
+        kind,
+        sdk_module: sdkModule,
       });
       nav(`/p/${id}/generate`);
     } catch (e) {
@@ -111,16 +117,28 @@ export default function ToolProposal() {
             onChange={(e) => setSlug(e.target.value)}
           />
         </div>
-        <div className="sm:col-span-1 lg:col-span-2">
-          <label className="label">Base URL</label>
-          <input
-            className="input font-mono text-xs"
-            value={baseUrl}
-            placeholder="https://api.example.com"
-            onChange={(e) => setBaseUrl(e.target.value)}
-          />
-        </div>
-        {auth && (
+        {kind === "python_sdk" ? (
+          <div className="sm:col-span-1 lg:col-span-3">
+            <label className="label">Python module</label>
+            <div className="input font-mono text-xs text-slate-400">
+              import {sdkModule}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Tools call this library in-process — no base URL or credentials.
+            </p>
+          </div>
+        ) : (
+          <div className="sm:col-span-1 lg:col-span-2">
+            <label className="label">Base URL</label>
+            <input
+              className="input font-mono text-xs"
+              value={baseUrl}
+              placeholder="https://api.example.com"
+              onChange={(e) => setBaseUrl(e.target.value)}
+            />
+          </div>
+        )}
+        {kind === "http" && auth && (
           <div>
             <label className="label">Auth</label>
             <div className="flex gap-2">
