@@ -1,4 +1,4 @@
-# MCP Forge
+# MCP Server builder
 
 **MCP servers without the expertise.** Paste an OpenAPI spec → review the
 proposed tools → generate a full MCP server from audited templates → test each
