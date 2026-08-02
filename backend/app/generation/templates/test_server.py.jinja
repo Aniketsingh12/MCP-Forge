@@ -1,0 +1,23 @@
+"""Smoke tests — verify the server imports and registers every tool.
+
+These run without network access or credentials: they check the MCP surface,
+not live API calls.
+"""
+import asyncio
+
+import server
+
+
+def test_module_imports():
+    assert server.mcp is not None
+    assert server.BASE_URL  # a base URL was baked in
+
+
+def test_expected_tools_registered():
+    tools = asyncio.run(server.mcp.list_tools())
+    names = {t.name for t in tools}
+    expected = {
+{% for literal in tool_name_literals %}        {{ literal }},
+{% endfor %}    }
+    missing = expected - names
+    assert not missing, f"missing tools: {missing}"

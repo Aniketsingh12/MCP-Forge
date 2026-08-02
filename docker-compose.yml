@@ -1,0 +1,44 @@
+# MCP Forge — local one-command run.
+#   docker compose up --build
+# Then open http://localhost:8000
+#
+# Generation is deterministic and needs no model. To enable optional LLM
+# description-polishing with a local open-source model, uncomment the `ollama`
+# service and the LLM_* env vars below (see README).
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # --- LLM (optional; default is deterministic template-only) ---
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      # --- playground egress allowlist (empty = any public host) ---
+      PLAYGROUND_ALLOWLIST: ${PLAYGROUND_ALLOWLIST:-}
+    volumes:
+      - mcpforge_data:/data
+    # Uncomment to talk to the ollama service below:
+    # depends_on:
+    #   - ollama
+
+  # --- Optional: local open-source models via Ollama ------------------------ #
+  # Uncomment this service, then set in your .env:
+  #   LLM_PROVIDER=openai-compatible
+  #   LLM_BASE_URL=http://ollama:11434/v1
+  #   LLM_MODEL=llama3.1
+  # and run `docker compose exec ollama ollama pull llama3.1` once.
+  #
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+
+volumes:
+  mcpforge_data:
+  # ollama_data:

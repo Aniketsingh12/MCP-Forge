@@ -1,0 +1,83 @@
+"""Application configuration, read from environment variables.
+
+Everything has a sane default so the platform runs with zero configuration.
+The LLM layer defaults to ``none`` — OpenAPI generation is fully deterministic
+and needs no model at all. Point ``LLM_PROVIDER`` at Ollama or any
+OpenAI-compatible endpoint to get LLM-polished tool descriptions.
+"""
+from __future__ import annotations
+
+import os
+from functools import lru_cache
+from pathlib import Path
+
+
+class Settings:
+    def __init__(self) -> None:
+        # --- storage ---
+        self.data_dir = Path(os.getenv("MCPFORGE_DATA_DIR", _default_data_dir()))
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.db_path = self.data_dir / "mcpforge.db"
+
+        # --- LLM ---
+        # provider: none | ollama | openai-compatible | anthropic
+        self.llm_provider = os.getenv("LLM_PROVIDER", "none").strip().lower()
+        self.llm_model = os.getenv("LLM_MODEL", _default_model(self.llm_provider))
+        self.llm_base_url = os.getenv("LLM_BASE_URL", _default_base_url(self.llm_provider))
+        self.llm_api_key = os.getenv("LLM_API_KEY", "")
+        self.llm_timeout = float(os.getenv("LLM_TIMEOUT", "60"))
+
+        # --- CORS (frontend dev server) ---
+        self.cors_origins = [
+            o.strip()
+            for o in os.getenv(
+                "CORS_ORIGINS",
+                "http://localhost:5173,http://127.0.0.1:5173",
+            ).split(",")
+            if o.strip()
+        ]
+
+        # --- playground ---
+        # Comma-separated allowlist of hosts the playground may call. Empty = allow any.
+        self.playground_allowlist = [
+            h.strip().lower()
+            for h in os.getenv("PLAYGROUND_ALLOWLIST", "").split(",")
+            if h.strip()
+        ]
+        self.playground_timeout = float(os.getenv("PLAYGROUND_TIMEOUT", "30"))
+
+    def as_public_dict(self) -> dict:
+        """LLM-related settings safe to expose to the frontend (no secrets)."""
+        return {
+            "llm_provider": self.llm_provider,
+            "llm_model": self.llm_model,
+            "llm_enabled": self.llm_provider != "none",
+        }
+
+
+def _default_data_dir() -> str:
+    # Keep data next to the backend by default; overridable for containers.
+    return str(Path(__file__).resolve().parent.parent / "data")
+
+
+def _default_model(provider: str) -> str:
+    return {
+        "ollama": "llama3.1",
+        "openai-compatible": "meta-llama/llama-3.1-8b-instruct",
+        "anthropic": "claude-opus-4-8",
+        "none": "",
+    }.get(provider, "")
+
+
+def _default_base_url(provider: str) -> str:
+    return {
+        "ollama": "http://localhost:11434/v1",
+        "openai-compatible": "https://openrouter.ai/api/v1",
+        "anthropic": "https://api.anthropic.com/v1",
+        "none": "",
+    }.get(provider, "")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

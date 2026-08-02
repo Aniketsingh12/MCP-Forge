@@ -1,0 +1,12 @@
+**/node_modules
+**/.venv
+**/dist
+backend/static
+backend/data
+**/__pycache__
+**/*.pyc
+.git
+.env
+*.md
+!backend/README.md
+scratchpad

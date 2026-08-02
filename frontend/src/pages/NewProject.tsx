@@ -1,0 +1,159 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api } from "../api/client";
+import type { PublicConfig } from "../types";
+import Stepper from "../components/Stepper";
+import { SAMPLE_SPEC } from "../lib/sampleSpec";
+
+type Mode = "paste" | "url";
+
+export default function NewProject() {
+  const nav = useNavigate();
+  const [name, setName] = useState("");
+  const [mode, setMode] = useState<Mode>("paste");
+  const [specText, setSpecText] = useState("");
+  const [specUrl, setSpecUrl] = useState("");
+  const [useLlm, setUseLlm] = useState(false);
+  const [cfg, setCfg] = useState<PublicConfig | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.config().then(setCfg).catch(() => {});
+  }, []);
+
+  const loadSample = () => {
+    setMode("paste");
+    setSpecText(SAMPLE_SPEC);
+    if (!name) setName("Swagger Petstore");
+  };
+
+  const submit = async () => {
+    setError(null);
+    if (mode === "paste" && !specText.trim()) {
+      setError("Paste an OpenAPI spec, or load the sample.");
+      return;
+    }
+    if (mode === "url" && !specUrl.trim()) {
+      setError("Enter a spec URL.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const project = await api.createProject(name || "Untitled server");
+      await api.parse(project.id, {
+        spec_text: mode === "paste" ? specText : undefined,
+        spec_url: mode === "url" ? specUrl : undefined,
+        use_llm: useLlm,
+      });
+      nav(`/p/${project.id}/proposal`);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <Stepper current="input" reached={[]} />
+
+      <div className="mx-auto max-w-2xl">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
+          New MCP server
+        </h1>
+        <p className="mt-1 text-sm text-slate-400">
+          MVP maps an <span className="text-slate-200">OpenAPI 3 / Swagger 2</span>{" "}
+          spec directly to tools — deterministic and reliable.
+        </p>
+
+        <div className="card mt-6 space-y-5 p-6">
+          <div>
+            <label className="label">Project name</label>
+            <input
+              className="input"
+              placeholder="e.g. Stripe Billing Server"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="label mb-0">OpenAPI specification</label>
+              <button
+                onClick={loadSample}
+                className="text-xs text-forge-500 hover:text-forge-400"
+              >
+                Load sample (Petstore)
+              </button>
+            </div>
+
+            <div className="mb-3 inline-flex rounded-lg border border-line bg-ink-950 p-0.5 text-sm">
+              {(["paste", "url"] as Mode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={
+                    "rounded-md px-3 py-1 " +
+                    (mode === m
+                      ? "bg-ink-700 text-slate-100"
+                      : "text-slate-400 hover:text-slate-200")
+                  }
+                >
+                  {m === "paste" ? "Paste spec" : "From URL"}
+                </button>
+              ))}
+            </div>
+
+            {mode === "paste" ? (
+              <textarea
+                className="input h-64 resize-y font-mono text-xs"
+                placeholder='Paste JSON or YAML OpenAPI spec here…'
+                value={specText}
+                onChange={(e) => setSpecText(e.target.value)}
+              />
+            ) : (
+              <input
+                className="input"
+                placeholder="https://api.example.com/openapi.json"
+                value={specUrl}
+                onChange={(e) => setSpecUrl(e.target.value)}
+              />
+            )}
+          </div>
+
+          {cfg?.llm_enabled && (
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={useLlm}
+                onChange={(e) => setUseLlm(e.target.checked)}
+                className="accent-forge-500"
+              />
+              Polish tool descriptions with{" "}
+              <span className="font-mono text-xs text-forge-400">
+                {cfg.llm_model || cfg.llm_provider}
+              </span>
+            </label>
+          )}
+
+          {error && (
+            <div className="rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-1">
+            <button
+              onClick={submit}
+              disabled={busy}
+              className="btn-primary"
+            >
+              {busy ? "Parsing spec…" : "Parse spec →"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

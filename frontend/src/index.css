@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-ink-950 text-slate-200 antialiased;
+    background-image: radial-gradient(
+        60rem 40rem at 80% -10%,
+        rgba(245, 158, 11, 0.06),
+        transparent
+      ),
+      radial-gradient(50rem 30rem at 0% 0%, rgba(56, 65, 87, 0.25), transparent);
+  }
+  ::selection {
+    @apply bg-forge-500/30;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-ink-900/70 backdrop-blur;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium
+      transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-forge-500 text-ink-950 hover:bg-forge-400;
+  }
+  .btn-ghost {
+    @apply btn border border-line bg-ink-800 text-slate-200 hover:bg-ink-700;
+  }
+  .btn-danger {
+    @apply btn border border-red-900/60 bg-red-950/40 text-red-300 hover:bg-red-900/40;
+  }
+  .input {
+    @apply w-full rounded-lg border border-line bg-ink-950/60 px-3 py-2 text-sm text-slate-100
+      placeholder:text-slate-500 focus:border-forge-500/60 focus:outline-none focus:ring-1
+      focus:ring-forge-500/40;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-400;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium;
+  }
+}
+
+/* Thin custom scrollbars for the code/dev feel */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3145 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2a3145;
+  border-radius: 8px;
+}
