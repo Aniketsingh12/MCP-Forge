@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
+import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import NewProject from "./pages/NewProject";
 import ToolProposal from "./pages/ToolProposal";
@@ -11,7 +12,8 @@ export default function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/" element={<Landing />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/new" element={<NewProject />} />
         <Route path="/p/:id/proposal" element={<ToolProposal />} />
         <Route path="/p/:id/generate" element={<Generation />} />

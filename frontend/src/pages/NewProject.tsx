@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { PublicConfig } from "../types";
 import Stepper from "../components/Stepper";
@@ -9,6 +9,7 @@ type Mode = "paste" | "url" | "sdk";
 
 export default function NewProject() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
   const [name, setName] = useState("");
   const [mode, setMode] = useState<Mode>("paste");
   const [specText, setSpecText] = useState("");
@@ -22,6 +23,13 @@ export default function NewProject() {
   useEffect(() => {
     api.config().then(setCfg).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (params.get("sample") === "1") {
+      setSpecText(SAMPLE_SPEC);
+      setName((n) => n || "Swagger Petstore");
+    }
+  }, [params]);
 
   const loadSample = () => {
     setMode("paste");

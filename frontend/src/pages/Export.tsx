@@ -108,7 +108,7 @@ export default function Export() {
         <Link to={`/p/${id}/playground`} className="btn-ghost">
           ← Back to playground
         </Link>
-        <Link to="/" className="btn-ghost">
+        <Link to="/dashboard" className="btn-ghost">
           Done — back to dashboard
         </Link>
       </div>

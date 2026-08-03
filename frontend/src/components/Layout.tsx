@@ -42,6 +42,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 {cfg.llm_enabled ? `LLM: ${cfg.llm_model || cfg.llm_provider}` : "Template-only"}
               </span>
             )}
+            {loc.pathname !== "/dashboard" && (
+              <Link
+                to="/dashboard"
+                className="text-slate-400 transition-colors hover:text-slate-100"
+              >
+                Dashboard
+              </Link>
+            )}
             {loc.pathname !== "/new" && (
               <Link to="/new" className="btn-primary">
                 + New server
@@ -54,8 +62,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <main className="mx-auto max-w-6xl px-5 py-8">{children}</main>
 
       <footer className="mx-auto max-w-6xl px-5 pb-10 pt-4 text-center text-xs text-slate-600">
-        OpenAPI spec → tested MCP server → download. Auth, transport & error
-        handling from audited templates.
+        Auth, transport & error handling from audited templates.
       </footer>
     </div>
   );

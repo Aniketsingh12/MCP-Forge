@@ -61,7 +61,9 @@ npm run dev            # http://localhost:5173
 
 ## Workflow: spec → running MCP server
 
-1. **New project** — Dashboard → **+ New server**, name it.
+1. **New project** — from the homepage hit **Forge a server** (or **Try the
+   sample spec** to skip straight to a filled-in demo). Existing projects live
+   under **Dashboard**.
 2. **Input** — one of:
    - paste an OpenAPI 3 / Swagger 2 spec (JSON or YAML), or a hosted spec URL.
      No spec handy? Click **Load sample (Petstore)**;
