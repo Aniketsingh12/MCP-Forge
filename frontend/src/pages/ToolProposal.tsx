@@ -18,6 +18,7 @@ export default function ToolProposal() {
   const [tools, setTools] = useState<ProposedTool[]>([]);
   const [kind, setKind] = useState<ServerKind>("http");
   const [sdkModule, setSdkModule] = useState("");
+  const [llmError, setLlmError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +39,7 @@ export default function ToolProposal() {
         setTools(pr.tools);
         setKind(pr.kind ?? "http");
         setSdkModule(pr.sdk_module ?? "");
+        setLlmError(pr.llm_error ?? null);
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
@@ -167,6 +169,18 @@ export default function ToolProposal() {
           </div>
         )}
       </div>
+
+      {llmError && (
+        <div className="mb-4 rounded-lg border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-sm text-amber-300">
+          <span className="font-medium">
+            Descriptions weren't polished — the model call failed.
+          </span>{" "}
+          These are the descriptions read straight from the spec, which are
+          still valid. Check <code className="font-mono text-xs">LLM_API_KEY</code>{" "}
+          and <code className="font-mono text-xs">LLM_MODEL</code>.
+          <div className="mt-1 font-mono text-xs text-amber-400/80">{llmError}</div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">

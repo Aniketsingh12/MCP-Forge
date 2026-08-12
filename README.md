@@ -110,9 +110,33 @@ Configure via environment variables (see [`.env.example`](.env.example)):
 | Provider | `LLM_PROVIDER` | `LLM_BASE_URL` | `LLM_MODEL` |
 |----------|----------------|----------------|-------------|
 | Local, open-source | `ollama` | `http://localhost:11434/v1` | `llama3.1`, `qwen2.5` |
-| OpenRouter / Together / Groq / vLLM / LM Studio | `openai-compatible` | e.g. `https://openrouter.ai/api/v1` | any model id |
+| Together AI (hosted open-weight) | `together` | `https://api.together.ai/v1` (default) | `meta-llama/Llama-3.3-70B-Instruct-Turbo` (default) |
+| OpenRouter / Groq / vLLM / LM Studio | `openai-compatible` | e.g. `https://openrouter.ai/api/v1` | any model id |
 | Anthropic | `anthropic` | `https://api.anthropic.com/v1` | `claude-opus-4-8` |
 | Disabled (default) | `none` | — | — |
+
+**Together AI:** create a key at [api.together.ai/settings/api-keys](https://api.together.ai/settings/api-keys), then set:
+
+```bash
+LLM_PROVIDER=together
+LLM_API_KEY=<your key>
+```
+
+`LLM_MODEL` and `LLM_BASE_URL` can stay unset — they default to Together's
+`Llama-3.3-70B-Instruct-Turbo` endpoint. Set `LLM_MODEL` to any other model id
+from your Together dashboard to switch.
+
+**Check the connection** (works against any provider):
+
+```bash
+curl https://<your-app>/api/llm/test
+```
+
+Returns `{"ok": true, ...}` on a successful round trip, or the provider's own
+error if the key or model id is wrong. Worth running right after a deploy —
+description polishing falls back to spec text rather than failing the request,
+so a bad key would otherwise just look like the feature doing nothing. (The
+tool-review screen also shows a warning when a polish attempt fails.)
 
 **Local models with Docker:** uncomment the `ollama` service in
 [`docker-compose.yml`](docker-compose.yml), then:
@@ -120,7 +144,7 @@ Configure via environment variables (see [`.env.example`](.env.example)):
 ```bash
 docker compose up --build -d
 docker compose exec ollama ollama pull llama3.1
-# .env: LLM_PROVIDER=openai-compatible  LLM_BASE_URL=http://ollama:11434/v1  LLM_MODEL=llama3.1
+# .env: LLM_PROVIDER=ollama  LLM_BASE_URL=http://ollama:11434/v1  LLM_MODEL=llama3.1
 ```
 
 ---

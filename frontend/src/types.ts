@@ -53,6 +53,7 @@ export interface ParseResult {
   auth: AuthConfig;
   tools: ProposedTool[];
   llm_used: boolean;
+  llm_error: string | null;
   kind: ServerKind;
   sdk_module: string;
 }

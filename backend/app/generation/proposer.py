@@ -40,10 +40,15 @@ def polish_descriptions(result: ParseResult) -> ParseResult:
     )
     try:
         data = llm.complete_json(_SYSTEM, user)
-    except llm.LLMError:
-        return result
+    except llm.LLMError as exc:
+        # Deterministic descriptions are still a valid result, so we don't fail
+        # the parse — but the reason is reported so a misconfigured key or model
+        # id shows up in the UI instead of looking like the feature did nothing.
+        return result.model_copy(update={"llm_error": str(exc)})
     if not isinstance(data, dict):
-        return result
+        return result.model_copy(
+            update={"llm_error": "model did not return the expected JSON shape"}
+        )
 
     by_name = {t.get("name"): t.get("description") for t in data.get("tools", []) if isinstance(t, dict)}
     updated = result.model_copy(deep=True)

@@ -4,7 +4,8 @@ One synchronous ``complete()`` entry point routes to whichever provider is
 configured. Everything speaks the OpenAI chat-completions shape, which covers:
 
   * ``ollama``            — local open-source models (llama3.1, qwen2.5, etc.)
-  * ``openai-compatible`` — OpenRouter, Together, Groq, vLLM, LM Studio, ...
+  * ``together``          — Together AI's hosted open-weight models
+  * ``openai-compatible`` — OpenRouter, Groq, vLLM, LM Studio, ...
   * ``anthropic``         — Claude (native messages API)
   * ``none``              — disabled; callers fall back to deterministic output
 
@@ -38,7 +39,7 @@ def complete(system: str, user: str, *, json_mode: bool = False) -> str:
         raise LLMError("LLM is disabled (LLM_PROVIDER=none)")
     if provider == "anthropic":
         return _anthropic(system, user, json_mode)
-    # ollama and openai-compatible both use the OpenAI chat shape.
+    # ollama, together, and openai-compatible all speak the OpenAI chat shape.
     return _openai_chat(system, user, json_mode)
 
 

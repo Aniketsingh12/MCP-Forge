@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import db
+from .. import db, llm
 from ..config import get_settings
 from ..generation import codegen, proposer, sdk_introspect, validator
 from ..generation.openapi_parser import SpecParseError, parse_spec
@@ -22,6 +22,40 @@ router = APIRouter(prefix="/api", tags=["generation"])
 @router.get("/config")
 def public_config() -> dict:
     return get_settings().as_public_dict()
+
+
+@router.get("/llm/test")
+def llm_test() -> dict:
+    """Round-trip the configured model so a bad key or model id fails loudly.
+
+    Description polishing degrades silently by design, so this is the way to
+    confirm credentials actually work — useful right after a deploy.
+    """
+    settings = get_settings()
+    if not llm.is_enabled():
+        return {
+            "ok": False,
+            "provider": settings.llm_provider,
+            "error": "LLM is disabled. Set LLM_PROVIDER to enable it.",
+        }
+    try:
+        reply = llm.complete(
+            "You are a terse assistant.",
+            "Reply with the single word: ready",
+        )
+    except llm.LLMError as exc:
+        return {
+            "ok": False,
+            "provider": settings.llm_provider,
+            "model": settings.llm_model,
+            "error": str(exc),
+        }
+    return {
+        "ok": True,
+        "provider": settings.llm_provider,
+        "model": settings.llm_model,
+        "reply": reply.strip()[:200],
+    }
 
 
 @router.post("/projects/{project_id}/parse")

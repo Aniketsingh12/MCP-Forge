@@ -90,6 +90,9 @@ class ParseResult(BaseModel):
     auth: AuthConfig
     tools: list[ProposedTool]
     llm_used: bool = False
+    # Why polishing was skipped, when it was requested but failed. Surfaced in
+    # the UI so a bad key or model id isn't an invisible no-op.
+    llm_error: Optional[str] = None
     kind: ServerKind = "http"
     sdk_module: str = ""
 

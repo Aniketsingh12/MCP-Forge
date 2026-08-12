@@ -2,8 +2,8 @@
 
 Everything has a sane default so the platform runs with zero configuration.
 The LLM layer defaults to ``none`` — OpenAPI generation is fully deterministic
-and needs no model at all. Point ``LLM_PROVIDER`` at Ollama or any
-OpenAI-compatible endpoint to get LLM-polished tool descriptions.
+and needs no model at all. Point ``LLM_PROVIDER`` at Ollama, Together AI, or
+any OpenAI-compatible endpoint to get LLM-polished tool descriptions.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ class Settings:
         self.db_path = self.data_dir / "mcpforge.db"
 
         # --- LLM ---
-        # provider: none | ollama | openai-compatible | anthropic
+        # provider: none | ollama | together | openai-compatible | anthropic
         self.llm_provider = os.getenv("LLM_PROVIDER", "none").strip().lower()
         self.llm_model = os.getenv("LLM_MODEL", _default_model(self.llm_provider))
         self.llm_base_url = os.getenv("LLM_BASE_URL", _default_base_url(self.llm_provider))
@@ -82,6 +82,10 @@ def _default_data_dir() -> str:
 def _default_model(provider: str) -> str:
     return {
         "ollama": "llama3.1",
+        # Together's own naming convention for its Turbo-optimized serverless
+        # endpoint of Llama 3.3 70B — a strong general-purpose instruct model,
+        # comfortably enough for rewriting tool descriptions.
+        "together": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
         "openai-compatible": "meta-llama/llama-3.1-8b-instruct",
         "anthropic": "claude-opus-4-8",
         "none": "",
@@ -91,6 +95,7 @@ def _default_model(provider: str) -> str:
 def _default_base_url(provider: str) -> str:
     return {
         "ollama": "http://localhost:11434/v1",
+        "together": "https://api.together.ai/v1",
         "openai-compatible": "https://openrouter.ai/api/v1",
         "anthropic": "https://api.anthropic.com/v1",
         "none": "",
