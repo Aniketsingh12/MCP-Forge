@@ -26,8 +26,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./
 COPY --from=frontend /web/dist ./static
 
+# Data dir for the SQLite database. Deliberately NOT a `VOLUME` instruction:
+# Railway rejects Dockerfiles containing VOLUME at validation time ("docker
+# VOLUME ... is not supported, use Railway Volumes") and persistence there is
+# configured by attaching a Railway Volume mounted at /data. docker-compose
+# declares its own named volume for the same path, so nothing is lost locally.
 RUN mkdir -p /data
-VOLUME ["/data"]
 
 EXPOSE 8000
 # Railway/Render inject $PORT; default to 8000 locally.
