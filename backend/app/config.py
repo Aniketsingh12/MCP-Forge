@@ -26,6 +26,20 @@ class Settings:
         self.llm_base_url = os.getenv("LLM_BASE_URL", _default_base_url(self.llm_provider))
         self.llm_api_key = os.getenv("LLM_API_KEY", "")
         self.llm_timeout = float(os.getenv("LLM_TIMEOUT", "60"))
+        # Shared secret gating the *metered* path. Description polishing is the
+        # only feature that spends provider credits, and everything else here is
+        # deterministic and free — so on a public deploy this keeps the demo
+        # fully open while making the billable path unreachable to strangers.
+        # Unset (the default) leaves polishing open, which is right for local use.
+        self.llm_access_key = os.getenv("LLM_ACCESS_KEY", "")
+
+        # --- abuse limits ---
+        self.rate_limit_enabled = _truthy(os.getenv("RATE_LIMIT_ENABLED", "true"))
+        # Specs are parsed in memory, so an unbounded upload is a memory DoS.
+        self.max_spec_bytes = int(os.getenv("MAX_SPEC_BYTES", "2000000"))
+        # Polishing sends every tool's metadata in one prompt; a 500-operation
+        # spec would otherwise become a single very expensive request.
+        self.max_llm_tools = int(os.getenv("MAX_LLM_TOOLS", "60"))
 
         # --- CORS (frontend dev server) ---
         self.cors_origins = [
@@ -65,6 +79,8 @@ class Settings:
             "llm_provider": self.llm_provider,
             "llm_model": self.llm_model,
             "llm_enabled": self.llm_provider != "none",
+            # Whether an access key is *required* — never the key itself.
+            "llm_requires_key": bool(self.llm_access_key),
             "sdk_introspection_enabled": self.enable_sdk_introspection,
             "sdk_allowed_modules": self.sdk_allowed_modules,
         }

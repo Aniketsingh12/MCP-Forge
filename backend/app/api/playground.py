@@ -7,16 +7,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import db
+from .. import db, ratelimit
 from ..config import get_settings
+from ..netguard import EgressError, check_url
 from ..playground import mcp_runner
 from ..playground.mcp_runner import McpRunError
-from ..playground.netguard import EgressError, check_url
 
 router = APIRouter(prefix="/api/playground", tags=["playground"])
+
+# Every call here spawns a Python subprocess, so this is the easiest endpoint
+# to weaponise for resource exhaustion — cheaper for an attacker than the
+# model path, since it needs no credential and spends no tokens.
+_PLAYGROUND_LIMIT, _PLAYGROUND_WINDOW = 20, 600.0
 
 
 class SessionRequest(BaseModel):
@@ -39,8 +44,9 @@ def _files_for(project_id: str):
 
 
 @router.post("/{project_id}/tools")
-async def list_tools(project_id: str, req: SessionRequest):
+async def list_tools(project_id: str, req: SessionRequest, request: Request):
     """Start the generated server and return the tools it actually advertises."""
+    ratelimit.enforce(request, "playground", _PLAYGROUND_LIMIT, _PLAYGROUND_WINDOW)
     project, files = _files_for(project_id)
     base_url = _resolve_target(project, req.base_url)
     try:
@@ -53,8 +59,9 @@ async def list_tools(project_id: str, req: SessionRequest):
 
 
 @router.post("/{project_id}/call")
-async def call_tool(project_id: str, req: CallRequest):
+async def call_tool(project_id: str, req: CallRequest, request: Request):
     """Invoke one tool on the running generated server."""
+    ratelimit.enforce(request, "playground", _PLAYGROUND_LIMIT, _PLAYGROUND_WINDOW)
     project, files = _files_for(project_id)
     base_url = _resolve_target(project, req.base_url)
     try:

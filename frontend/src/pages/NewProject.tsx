@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api } from "../api/client";
+import { api, getLlmAccessKey, setLlmAccessKey } from "../api/client";
 import type { PublicConfig } from "../types";
 import Stepper from "../components/Stepper";
 import { SAMPLE_SPEC } from "../lib/sampleSpec";
@@ -16,6 +16,7 @@ export default function NewProject() {
   const [specUrl, setSpecUrl] = useState("");
   const [sdkModule, setSdkModule] = useState("");
   const [useLlm, setUseLlm] = useState(false);
+  const [llmKey, setLlmKey] = useState(getLlmAccessKey);
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -173,18 +174,42 @@ export default function NewProject() {
           </div>
 
           {cfg?.llm_enabled && (
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
-              <input
-                type="checkbox"
-                checked={useLlm}
-                onChange={(e) => setUseLlm(e.target.checked)}
-                className="accent-forge-500"
-              />
-              Polish tool descriptions with{" "}
-              <span className="font-mono text-xs text-forge-400">
-                {cfg.llm_model || cfg.llm_provider}
-              </span>
-            </label>
+            <div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={useLlm}
+                  onChange={(e) => setUseLlm(e.target.checked)}
+                  className="accent-forge-500"
+                />
+                Polish tool descriptions with{" "}
+                <span className="font-mono text-xs text-forge-400">
+                  {cfg.llm_model || cfg.llm_provider}
+                </span>
+              </label>
+
+              {/* Polishing is the only metered feature, so a public deploy can
+                  require a key for it while leaving generation fully open. */}
+              {useLlm && cfg.llm_requires_key && (
+                <div className="mt-3">
+                  <label className="label">Access key</label>
+                  <input
+                    className="input font-mono text-xs"
+                    type="password"
+                    value={llmKey}
+                    placeholder="Required for description polishing on this deployment"
+                    onChange={(e) => {
+                      setLlmKey(e.target.value);
+                      setLlmAccessKey(e.target.value.trim());
+                    }}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Stored in this browser only. Everything else — parsing,
+                    generation, the playground, download — works without it.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
 
           {error && (

@@ -9,9 +9,37 @@ import type {
   PublicConfig,
 } from "../types";
 
+/**
+ * Shared secret for the optional description-polishing pass, when the
+ * deployment requires one. Kept in localStorage so it is typed once, and sent
+ * only as a header — never in a URL, where it would land in access logs.
+ */
+const LLM_KEY_STORAGE = "mcpforge.llmAccessKey";
+
+export function getLlmAccessKey(): string {
+  try {
+    return localStorage.getItem(LLM_KEY_STORAGE) ?? "";
+  } catch {
+    return ""; // storage can be blocked; polishing just stays unavailable
+  }
+}
+
+export function setLlmAccessKey(value: string): void {
+  try {
+    if (value) localStorage.setItem(LLM_KEY_STORAGE, value);
+    else localStorage.removeItem(LLM_KEY_STORAGE);
+  } catch {
+    /* non-fatal */
+  }
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const key = getLlmAccessKey();
   const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(key ? { "X-LLM-Access-Key": key } : {}),
+    },
     ...init,
   });
   if (!res.ok) {

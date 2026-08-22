@@ -192,6 +192,47 @@ remain hand-built work.
 
 ---
 
+## Running this publicly (abuse limits)
+
+Anything reachable by a link is reachable by everyone, so a public deploy needs
+two things: **nobody else spending your model credits**, and **nobody exhausting
+the box**.
+
+The useful asymmetry here is that **description polishing is the only feature
+that costs money.** Parsing, the tool-proposal gate, generation, validation, the
+playground and download are all deterministic and free. So you don't have to gate
+the demo — just the metered path:
+
+```bash
+LLM_ACCESS_KEY=<a long random string>
+```
+
+With that set, `use_llm` requests (and `/api/llm/test`) require an
+`X-LLM-Access-Key` header, while the rest of the app stays fully open to visitors.
+The UI shows a key field only when the deployment requires one, and stores it in
+your browser so you type it once. Without a key configured, polishing stays open —
+which is what you want locally.
+
+Also enforced by default:
+
+| Control | Default | Env var |
+|---|---|---|
+| Per-IP rate limits (parse, generate, playground, project create) | on | `RATE_LIMIT_ENABLED` |
+| Max spec upload size | 2 MB | `MAX_SPEC_BYTES` |
+| Max tools sent to the model in one prompt | 60 | `MAX_LLM_TOOLS` |
+
+> **Set a hard spending cap at your model provider too.** The rate limiter is
+> in-process, so counters are per-instance and reset on redeploy. That is a
+> throttle against casual abuse and runaway loops — it is *not* a billing
+> guarantee. A provider-side cap holds even if this process restarts or a bug
+> lets a request through, so it's the only real backstop.
+
+Note also that the playground spawns a Python subprocess per call, which is
+cheaper to abuse than your credits (no key needed, no tokens spent). It is rate
+limited, but if you expect real traffic, cap concurrency as well.
+
+---
+
 ## Deploy
 
 Because it's one container that listens on `$PORT`, it drops onto most hosts:
@@ -271,8 +312,10 @@ Design choices vs. the original spec, for a self-contained MVP:
   see a "valid" badge.
 - The static-file route resolves and containment-checks every path, so `..`
   segments can't escape the frontend's `dist/` directory.
-- The playground's generated server makes its own HTTP calls, so the base URL is
-  validated **before** the process launches: private/loopback/link-local targets
+- Every outbound URL is validated by the same egress guard — both the base URL
+  handed to the playground's child process **and** the `spec_url` the backend
+  fetches itself (redirects are followed manually so a public URL cannot 302 to
+  an internal one). Checks run **before** any request leaves: private/loopback/link-local targets
   are refused (including NAT64-wrapped addresses) and `PLAYGROUND_ALLOWLIST` can
   restrict permitted hosts. **Known limitation:** the guard resolves DNS to
   validate, then the child resolves again when it connects — a hostile DNS

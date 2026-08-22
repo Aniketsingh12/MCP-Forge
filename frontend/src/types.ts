@@ -115,6 +115,8 @@ export interface PublicConfig {
   llm_provider: string;
   llm_model: string;
   llm_enabled: boolean;
+  /** Polishing needs an access key on this deployment (the key itself is never sent here). */
+  llm_requires_key: boolean;
   sdk_introspection_enabled: boolean;
   sdk_allowed_modules: string[];
 }

@@ -1,12 +1,16 @@
 """Project CRUD."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 
-from .. import db
+from .. import db, ratelimit
 from ..models import ProjectCreate, ProjectState
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+# Each project is a row plus a JSON blob, so unbounded creation is a disk
+# and database-growth vector even though it costs no model credits.
+_CREATE_LIMIT, _CREATE_WINDOW = 40, 600.0
 
 
 @router.get("")
@@ -15,7 +19,8 @@ def list_projects() -> list[ProjectState]:
 
 
 @router.post("", status_code=201)
-def create_project(payload: ProjectCreate) -> ProjectState:
+def create_project(payload: ProjectCreate, request: Request) -> ProjectState:
+    ratelimit.enforce(request, "create_project", _CREATE_LIMIT, _CREATE_WINDOW)
     return db.create_project(payload)
 
 

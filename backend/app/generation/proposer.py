@@ -9,6 +9,7 @@ stays the source of truth for behaviour; the LLM only improves prose.
 from __future__ import annotations
 
 from .. import llm
+from ..config import get_settings
 from ..models import ParseResult
 
 _SYSTEM = (
@@ -28,9 +29,13 @@ def polish_descriptions(result: ParseResult) -> ParseResult:
     if not llm.is_enabled() or not result.tools:
         return result
 
+    # One prompt carries every tool's metadata, so prompt size scales with the
+    # spec. A 500-operation spec would become a single very expensive request,
+    # so cap it: the excess simply keeps its deterministic description.
+    budget = get_settings().max_llm_tools
     items = [
         {"name": t.name, "method": t.method, "path": t.path, "current": t.description}
-        for t in result.tools
+        for t in result.tools[:budget]
     ]
     user = (
         f"API: {result.api_title}\n\n"
