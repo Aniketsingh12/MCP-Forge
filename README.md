@@ -285,7 +285,10 @@ FastAPI
   ├─ generation/  openapi_parser ┐
   │               sdk_introspect ┴→ proposer(LLM, opt) → codegen(Jinja) → validator(compile)
   ├─ playground/  mcp_runner: spawns generated server, drives it over stdio
-  │               netguard:   egress allowlist + SSRF check before launch
+  ├─ netguard.py  egress allowlist + SSRF check, shared by the playground
+  │               launch and the backend's own spec_url fetch
+  ├─ ratelimit.py in-process per-IP sliding-window limiter (parse/generate/
+  │               playground/project-create/llm-test)
   ├─ export/      zip packager
   └─ db (SQLite)  projects + parse/generate results
 ```
@@ -351,11 +354,21 @@ pip install pytest
 pytest tests/ -q
 ```
 
-Covers: the Petstore spec yields the expected tools with write actions gated;
-duplicate path/operation-level params don't produce uncompilable output;
-hostile spec/user input (auth header names, base URLs, module paths) can't
-become executable code; the validator rejects duplicate function arguments; path
-parameters are URL-encoded; polling emits a submit-and-poll tool (and no dead
-helper code when unused); and SDK introspection stays disabled without the env
-flag. `python tests/test_pipeline.py` run directly also prints the full
-generated `server.py` for inspection.
+25 tests across two files:
+
+- **`test_pipeline.py`** — the Petstore spec yields the expected tools with
+  write actions gated; duplicate path/operation-level params don't produce
+  uncompilable output; hostile spec/user input (auth header names, base URLs,
+  module paths) can't become executable code; the validator rejects duplicate
+  function arguments; path parameters are URL-encoded; polling emits a
+  submit-and-poll tool (and no dead helper code when unused); and SDK
+  introspection stays disabled without the env flag. Run directly
+  (`python tests/test_pipeline.py`) it also prints the full generated
+  `server.py` for inspection.
+- **`test_hardening.py`** — the public-deploy abuse limits: SSRF is blocked
+  against loopback/link-local/cloud-metadata/private/`file://` targets, a
+  redirect is re-validated on *every* hop (a public URL can't 302 to an
+  internal one), `LLM_ACCESS_KEY` gates `use_llm` requests and `/api/llm/test`
+  but never leaks through `/api/config` or `/api/health`, oversized specs get
+  a 413, and the rate limiter trips a 429 with `Retry-After` and resets
+  per client.
